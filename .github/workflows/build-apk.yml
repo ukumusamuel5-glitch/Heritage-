@@ -1,0 +1,64 @@
+name: Heritage APK
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 9.3.1
+
+      - name: Prepare project
+        run: |
+          set -e
+          mkdir -p _proj
+          unzip -q -o "$(ls *.zip | head -n1)" -d _proj
+          S=$(find _proj -name settings.gradle.kts | head -n1)
+          echo "PROJ=$(dirname "$S")" >> "$GITHUB_ENV"
+
+      - name: Create debug key
+        run: |
+          cd "$PROJ"
+          keytool -genkeypair -v -keystore debug.keystore -storepass android \
+            -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 \
+            -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Build APK
+        run: |
+          cd "$PROJ"
+          gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Collect APK
+        run: |
+          mkdir -p out
+          cp "$PROJ"/app/build/outputs/apk/debug/*.apk out/Heritage.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Heritage-APK
+          path: out/Heritage.apk
+
+      - name: Publish APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "apk-${{ github.run_number }}" out/Heritage.apk \
+            --title "Heritage APK" \
+            --notes "Download Heritage.apk and install on Android."
